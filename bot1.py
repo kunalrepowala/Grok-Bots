@@ -1,4 +1,3 @@
-# @iinkproviderpaybot 
 import logging
 import qrcode
 from PIL import Image
@@ -59,7 +58,7 @@ def generate_qr_code(data, logo_file_id=None):
     qr = qrcode.QRCode(version=1, box_size=10, border=4)
     qr.add_data(data)
     qr.make(fit=True)
-    img = qr.make_image(fill='black', back_color='white')
+    img = qr.make_image(fill_color='black', back_color='white')
     if logo_file_id:
         try:
             logo_content = download_logo_from_telegram(logo_file_id)
@@ -72,6 +71,12 @@ def generate_qr_code(data, logo_file_id=None):
             logging.error(f"Error adding logo to QR code: {e}")
     return img
 
+# Define a set of file IDs that should be sent as videos.
+VIDEO_FILE_IDS = {
+    "BAACAgUAAxkBAAJ5bWfcAAFscCgDEwLE_ZVKf-j-LYqoaQACQxgAAtjV6FIFkb7AFYpZxjYE",
+    "BAACAgUAAxkBAAMHZuLGLkRq4Ej1PekdoULAdoyIeMUAAnEVAALsLxBXCdaESjhVUag2BA"
+}
+
 async def start(update: Update, context):
     user_id = update.message.from_user.id
     args = context.args
@@ -83,8 +88,14 @@ async def start(update: Update, context):
         unique_users_today.add(user_id)
         user_usage_date[user_id] = today
 
-    if args and args[0] in ['s', 'S']:
-        amount = '200' if args[0] == 'S' else '180'
+    # Normalize parameter input so that both uppercase and lowercase 's' behave the same.
+    if args and args[0].lower() == 's':
+        # If you need to preserve different amounts for uppercase vs lowercase,
+        # uncomment the following lines and adjust accordingly.
+        # amount = '200' if args[0] == 'S' else '180'
+        # For consistent behavior regardless of case:
+        amount = '200'
+
         # --- Retrieve or generate TN code from MongoDB ---
         tn_entry = user_tn_codes_collection.find_one({'user_id': user_id})
         if tn_entry:
@@ -100,7 +111,7 @@ async def start(update: Update, context):
         if qr_entry:
             qr_image_data = qr_entry['qr_code_data']
         else:
-            # Updated logo file ID
+            # Updated logo file ID (ensure this ID is valid)
             logo_file_id = "BQACAgUAAxkBAAOFZuXv8SPbZelS-gE53dNnyPZxxoEAAv8OAAKAe1lWvt2DsZHCldQ2BA"
             qr_image = generate_qr_code(qr_data, logo_file_id=logo_file_id)
             qr_stream = io.BytesIO()
@@ -116,36 +127,46 @@ async def start(update: Update, context):
         # --- Delete old messages asynchronously (do not await) ---
         context.application.create_task(delete_old_messages(user_id, context))
 
+        # Updated messages to send list
         messages_to_send = [
             ("✨YOU PURCHASING✨", None, None),
-            # Updated photo file ID
+            # This media file is assumed to be a photo.
             (None, 'AgACAgUAAxkBAAMDZuLGJEbWoqAogU2QF5yO45ByPwgAAim_MRukShlXvJeP2v8lCGEBAAMCAAN3AAM2BA', 
-             f"• {amount}₹ ~ Fᴜʟʟ Cᴏʟʟᴇᴄᴛɪᴏɴ 🥳\n• Qᴜɪᴄᴋ Dᴇʟɪᴇᴠᴇʀʏ Sʏsᴛᴇᴍ 🏎️💨\n• Nᴏ Lɪɴᴋ❗, Dɪʀᴇᴄᴛ 🍃\n• Oʀɢɪɴᴀʟ Qᴜᴀʟɪᴛʏ ☄️\n• Pʟᴜs Bᴏɴᴜs⚜"),
+             "• 200₹ ~ Fᴜʟʟ Cᴏʟʟᴇᴄᴛɪᴏɴ 🥳\n• Qᴜɪᴄᴋ Dᴇʟɪᴇᴠᴇʀʏ Sʏsᴛᴇᴍ 🏎️💨\n• Nᴏ Lɪɴᴋ❗, Dɪʀᴇᴄᴛ 🍃\n• Oʀɢɪɴᴀʟ Qᴜᴀʟɪᴛʏ ☄️\n• Pʟᴜs Bᴏɴᴜs⚜"),
             ("🔱Qʀ ᴄᴏᴅᴇ ᴀɴᴅ ᴘᴀʏ Lɪɴᴋ👇", None, None),
             (None, qr_image_data, None),
             ("☄Qᴜɪᴄᴋ ᴘᴀʏ sʏsᴛᴇᴍ🎗", None, None),
             ("Tᴜᴛᴏʀɪᴀʟ : ʜᴏᴡ ᴛᴏ ᴘᴀʏ 👇", None, None),
-            # Updated media file ID
-            (None, 'BAACAgQAAxkBAAJ5bWfcAAFscCgDEwLE_ZVKf-j-LYqoaQACQxgAAtjV6FIFkb7AFYpZxjYE', None),
+            # This media file should be sent as a video.
+            (None, "BAACAgUAAxkBAAJ5bWfcAAFscCgDEwLE_ZVKf-j-LYqoaQACQxgAAtjV6FIFkb7AFYpZxjYE", None),
         ]
 
         message_ids = []
         for text, content, caption in messages_to_send:
             try:
+                # If content is None, just send a text message.
                 if content is None:
                     message = await context.bot.send_message(chat_id=user_id, text=text)
+                # If content is bytes, assume it's an image from QR generation.
                 elif isinstance(content, bytes):
                     message = await context.bot.send_photo(chat_id=user_id, photo=io.BytesIO(content), caption=text)
-                elif caption and isinstance(content, str):
-                    if content.startswith('BAACAgUAAxk'):
-                        message = await context.bot.send_video(chat_id=user_id, video=content, caption=caption)
+                # If content is a string (file ID) check if it should be sent as video.
+                elif isinstance(content, str):
+                    if content in VIDEO_FILE_IDS:
+                        # Send video; include caption if provided.
+                        if caption:
+                            message = await context.bot.send_video(chat_id=user_id, video=content, caption=caption)
+                        else:
+                            message = await context.bot.send_video(chat_id=user_id, video=content)
                     else:
-                        message = await context.bot.send_photo(chat_id=user_id, photo=content, caption=caption)
+                        # Send as photo; include caption if provided.
+                        if caption:
+                            message = await context.bot.send_photo(chat_id=user_id, photo=content, caption=caption)
+                        else:
+                            message = await context.bot.send_photo(chat_id=user_id, photo=content)
                 else:
-                    if content.startswith('BAACAgUAAxk'):
-                        message = await context.bot.send_video(chat_id=user_id, video=content)
-                    else:
-                        message = await context.bot.send_photo(chat_id=user_id, photo=content)
+                    # Fallback to sending a text message if type is unknown.
+                    message = await context.bot.send_message(chat_id=user_id, text=text)
                 message_ids.append(message.message_id)
             except Exception as e:
                 logging.error(f"Error sending message to user {user_id}: {e}")
@@ -287,7 +308,7 @@ async def handle_payment_update(update: Update, context):
                     ])
                     await context.bot.send_message(
                         chat_id=user_id,
-                        text="click the button below to send message to admin. 📥𝗚𝗘𝗧 𝗖𝗢𝗟𝗟𝗘𝗖𝗧𝗜𝗢𝗡👇",
+                        text="click the button below to send message to admin. 📥𝗚𝗘𝗧 𝗖𝗢𝗟𝗟𝗘𝐶𝗧𝗜𝗢𝗡👇",
                         reply_markup=keyboard
                     )
                 except Exception as e:
