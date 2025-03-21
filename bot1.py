@@ -88,9 +88,105 @@ async def start(update: Update, context):
         unique_users_today.add(user_id)
         user_usage_date[user_id] = today
 
-    # Default branch if no or unrecognized parameter is provided:
-    if not args or args[0] not in ['s', 'S']:
-        text = "⚠️ Any Help Contact: @XProvider\nor\n👇Sᴛᴀʀᴛ ғʀᴏᴍ ᴛʜɪs ʙᴏᴛ ᴛᴏ ʙᴜʏ"
+    # Check if parameter is provided and handle based on case:
+    if args and args[0] in ['s', 'S']:
+        # Set amount and collection text based on parameter case:
+        if args[0] == 's':
+            amount = '180'
+            collection_text = (
+                "• 180₹ ~ Fᴜʟʟ Cᴏʟʟᴇᴄᴛɪᴏɴ 🥳\n"
+                "• Qᴜɪᴄᴋ Dᴇʟɪᴇᴠᴇʀʏ Sʏsᴛᴇᴍ 🏎️💨\n"
+                "• Nᴏ Lɪɴᴋ❗, Dɪʀᴇᴄᴛ 🍃\n"
+                "• Oʀɢɪɴᴀʟ Qᴜᴀʟɪᴛʏ ☄️\n"
+                "• Pʟᴜs Bᴏɴᴜs⚜"
+            )
+        else:  # args[0] == 'S'
+            amount = '200'
+            collection_text = (
+                "• 200₹ ~ Fᴜʟʟ Cᴏʟʟᴇᴄᴛɪᴏɴ 🥳\n"
+                "• Qᴜɪᴄᴋ Dᴇʟɪᴇᴠᴇʀʏ Sʏsᴛᴇᴍ 🏎️💨\n"
+                "• Nᴏ Lɪɴᴋ❗, Dɪʀᴇᴄᴛ 🍃\n"
+                "• Oʀɢɪɴᴀʟ Qᴜᴀʟɪᴛʏ ☄️\n"
+                "• Pʟᴜs Bᴏɴᴜs⚜"
+            )
+
+        # --- Retrieve or generate TN code from MongoDB ---
+        tn_entry = user_tn_codes_collection.find_one({'user_id': user_id})
+        if tn_entry:
+            unique_code = tn_entry['tn_code']
+        else:
+            unique_code = generate_unique_code()
+            user_tn_codes_collection.insert_one({'user_id': user_id, 'tn_code': unique_code})
+
+        # Create the QR data using the chosen amount.
+        qr_data = f'upi://pay?pa=Q682714937@ybl&pn=V-TECH&am={amount}&tn={unique_code}'
+
+        # --- Retrieve or generate QR code from MongoDB ---
+        qr_entry = qr_codes_collection.find_one({'tn_code': unique_code, 'amount': amount})
+        if qr_entry:
+            qr_image_data = qr_entry['qr_code_data']
+        else:
+            # Use the logo file ID (ensure this file ID is valid)
+            logo_file_id = "BQACAgUAAxkBAAOFZuXv8SPbZelS-gE53dNnyPZxxoEAAv8OAAKAe1lWvt2DsZHCldQ2BA"
+            qr_image = generate_qr_code(qr_data, logo_file_id=logo_file_id)
+            qr_stream = io.BytesIO()
+            qr_image.save(qr_stream, format='PNG')
+            qr_stream.seek(0)
+            qr_image_data = qr_stream.getvalue()
+            qr_codes_collection.insert_one({
+                'tn_code': unique_code,
+                'amount': amount,
+                'qr_code_data': Binary(qr_image_data)
+            })
+
+        # --- Delete old messages asynchronously (do not await) ---
+        context.application.create_task(delete_old_messages(user_id, context))
+
+        # Build messages list. Note that the collection text differs based on the amount.
+        messages_to_send = [
+            ("✨YOU PURCHASING✨", None, None),
+            (None, 'AgACAgUAAxkBAAMDZuLGJEbWoqAogU2QF5yO45ByPwgAAim_MRukShlXvJeP2v8lCGEBAAMCAAN3AAM2BA', collection_text),
+            ("🔱Qʀ ᴄᴏᴅᴇ ᴀɴᴅ ᴘᴀʏ Lɪɴᴋ👇", None, None),
+            (None, qr_image_data, None),
+            ("☄Qᴜɪᴄᴋ ᴘᴀʏ sʏsᴛᴇᴍ🎗", None, None),
+            ("Tᴜᴛᴏʀɪᴀʟ : ʜᴏᴡ ᴛᴏ ᴘᴀʏ 👇", None, None),
+            (None, "BAACAgUAAxkBAAJ5bWfcAAFscCgDEwLE_ZVKf-j-LYqoaQACQxgAAtjV6FIFkb7AFYpZxjYE", None),
+        ]
+
+        message_ids = []
+        for text, content, caption in messages_to_send:
+            try:
+                if content is None:
+                    message = await context.bot.send_message(chat_id=user_id, text=text)
+                elif isinstance(content, bytes):
+                    message = await context.bot.send_photo(chat_id=user_id, photo=io.BytesIO(content), caption=text)
+                elif isinstance(content, str):
+                    if content in VIDEO_FILE_IDS:
+                        if caption:
+                            message = await context.bot.send_video(chat_id=user_id, video=content, caption=caption)
+                        else:
+                            message = await context.bot.send_video(chat_id=user_id, video=content)
+                    else:
+                        if caption:
+                            message = await context.bot.send_photo(chat_id=user_id, photo=content, caption=caption)
+                        else:
+                            message = await context.bot.send_photo(chat_id=user_id, photo=content)
+                else:
+                    message = await context.bot.send_message(chat_id=user_id, text=text)
+                message_ids.append(message.message_id)
+            except Exception as e:
+                logging.error(f"Error sending message to user {user_id}: {e}")
+
+        # --- Save user messages info to MongoDB ---
+        user_messages_collection.insert_one({
+            'user_id': user_id,
+            'unique_code': unique_code,
+            'amount': amount,
+            'message_ids': message_ids
+        })
+    else:
+        # New /start message when no parameters are provided.
+        text = "Any help Contact: @XProvider\nor\n👇Sᴛᴀʀᴛ ғʀᴏᴍ ᴛʜɪs ʙᴏᴛ ᴛᴏ ʙᴜʏ"
         inline_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("IINKPROVIDER", url="https://t.me/Iinkprovider_bot")]
         ])
@@ -99,105 +195,9 @@ async def start(update: Update, context):
             text=text,
             reply_markup=inline_keyboard
         )
-        return
-
-    # Now explicitly check parameter:
-    if args[0] == 's':
-        amount = '180'
-        collection_text = (
-            "• 180₹ ~ Fᴜʟʟ Cᴏʟʟᴇᴄᴛɪᴏɴ 🥳\n"
-            "• Qᴜɪᴄᴋ Dᴇʟɪᴇᴠᴇʀʏ Sʏsᴛᴇᴍ 🏎️💨\n"
-            "• Nᴏ Lɪɴᴋ❗, Dɪʀᴇᴄᴛ 🍃\n"
-            "• Oʀɢɪɴᴀʟ Qᴜᴀʟɪᴛʏ ☄️\n"
-            "• Pʟᴜs Bᴏɴᴜs⚜"
-        )
-        logging.info(f"Parameter 's' detected: Setting amount to {amount}")
-    elif args[0] == 'S':
-        amount = '200'
-        collection_text = (
-            "• 200₹ ~ Fᴜʟʟ Cᴏʟʟᴇᴄᴛɪᴏɴ 🥳\n"
-            "• Qᴜɪᴄᴋ Dᴇʟɪᴇᴠᴇʀʏ Sʏsᴛᴇᴍ 🏎️💨\n"
-            "• Nᴏ Lɪɴᴋ❗, Dɪʀᴇᴄᴛ 🍃\n"
-            "• Oʀɢɪɴᴀʟ Qᴜᴀʟɪᴛʏ ☄️\n"
-            "• Pʟᴜs Bᴏɴᴜs⚜"
-        )
-        logging.info(f"Parameter 'S' detected: Setting amount to {amount}")
-
-    # --- Retrieve or generate TN code from MongoDB ---
-    tn_entry = user_tn_codes_collection.find_one({'user_id': user_id})
-    if tn_entry:
-        unique_code = tn_entry['tn_code']
-    else:
-        unique_code = generate_unique_code()
-        user_tn_codes_collection.insert_one({'user_id': user_id, 'tn_code': unique_code})
-
-    # Create the QR data using the chosen amount.
-    qr_data = f'upi://pay?pa=Q682714937@ybl&pn=V-TECH&am={amount}&tn={unique_code}'
-
-    # --- Retrieve or generate QR code from MongoDB ---
-    qr_entry = qr_codes_collection.find_one({'tn_code': unique_code, 'amount': amount})
-    if qr_entry:
-        qr_image_data = qr_entry['qr_code_data']
-    else:
-        logo_file_id = "BQACAgUAAxkBAAOFZuXv8SPbZelS-gE53dNnyPZxxoEAAv8OAAKAe1lWvt2DsZHCldQ2BA"
-        qr_image = generate_qr_code(qr_data, logo_file_id=logo_file_id)
-        qr_stream = io.BytesIO()
-        qr_image.save(qr_stream, format='PNG')
-        qr_stream.seek(0)
-        qr_image_data = qr_stream.getvalue()
-        qr_codes_collection.insert_one({
-            'tn_code': unique_code,
-            'amount': amount,
-            'qr_code_data': Binary(qr_image_data)
-        })
-
-    # --- Delete old messages asynchronously (do not await) ---
-    context.application.create_task(delete_old_messages(user_id, context))
-
-    # Build messages list.
-    messages_to_send = [
-        ("✨YOU PURCHASING✨", None, None),
-        (None, 'AgACAgUAAxkBAAMDZuLGJEbWoqAogU2QF5yO45ByPwgAAim_MRukShlXvJeP2v8lCGEBAAMCAAN3AAM2BA', collection_text),
-        ("🔱Qʀ ᴄᴏᴅᴇ ᴀɴᴅ ᴘᴀʏ Lɪɴᴋ👇", None, None),
-        (None, qr_image_data, None),
-        ("☄Qᴜɪᴄᴋ ᴘᴀʏ sʏsᴛᴇᴍ🎗", None, None),
-        ("Tᴜᴛᴏʀɪᴀʟ : ʜᴏᴡ ᴛᴏ ᴘᴀʏ 👇", None, None),
-        (None, "BAACAgUAAxkBAAJ5bWfcAAFscCgDEwLE_ZVKf-j-LYqoaQACQxgAAtjV6FIFkb7AFYpZxjYE", None),
-    ]
-
-    message_ids = []
-    for text, content, caption in messages_to_send:
-        try:
-            if content is None:
-                message = await context.bot.send_message(chat_id=user_id, text=text)
-            elif isinstance(content, bytes):
-                message = await context.bot.send_photo(chat_id=user_id, photo=io.BytesIO(content), caption=text)
-            elif isinstance(content, str):
-                if content in VIDEO_FILE_IDS:
-                    if caption:
-                        message = await context.bot.send_video(chat_id=user_id, video=content, caption=caption)
-                    else:
-                        message = await context.bot.send_video(chat_id=user_id, video=content)
-                else:
-                    if caption:
-                        message = await context.bot.send_photo(chat_id=user_id, photo=content, caption=caption)
-                    else:
-                        message = await context.bot.send_photo(chat_id=user_id, photo=content)
-            else:
-                message = await context.bot.send_message(chat_id=user_id, text=text)
-            message_ids.append(message.message_id)
-        except Exception as e:
-            logging.error(f"Error sending message to user {user_id}: {e}")
-
-    # --- Save user messages info to MongoDB ---
-    user_messages_collection.insert_one({
-        'user_id': user_id,
-        'unique_code': unique_code,
-        'amount': amount,
-        'message_ids': message_ids
-    })
 
 async def delete_old_messages(user_id, context):
+    # Retrieve and remove user's message document from MongoDB
     message_data = user_messages_collection.find_one_and_delete({'user_id': user_id})
     if message_data:
         for message_id in message_data.get('message_ids', []):
