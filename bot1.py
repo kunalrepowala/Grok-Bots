@@ -29,7 +29,7 @@ qr_codes_collection = db['qr_codes']
 user_tn_codes_collection = db['user_tn_codes']
 
 # --- Bot Configuration ---
-BOT_TOKEN = '7240000536:AAG4ddU8TAW28N7PcywJZHZjMMJuRt8AaGE'
+BOT_TOKEN = '7240000536:AAErKVOgFBLXDTrz34cJjuS-4QEs7KQgu0g'
 CHANNEL_ID = -1002301680804           # Transaction channel (tr db)
 INLINE_BUTTON_CHANNEL = -1002315192547  # Inline button channel for user ID
 ADMIN_USER_ID = 7144181041
